@@ -1,11 +1,32 @@
-<div align="center">
+# Alba — AI-Powered Travel, Group Planning & Lifestyle Concierge
 
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+**Alba Ltd.** | *Plan Together. Explore More. Save Smarter.*  
+Initial Launch Market: **Bengaluru, India**
 
-  <h1>Built with AI Studio</h2>
+## Tech Stack
+- **Frontend:** React 19, TypeScript, Vite, Tailwind CSS v4, Lucide React, React Router DOM
+- **Backend:** Express (`server.ts`), Firebase Admin SDK (`verifyIdToken`), Google Gemini API (`@google/genai`)
+- **Database & Auth:** Cloud Firestore, Firebase Authentication (Google Sign-In + Email/Password), Firebase Storage
 
-  <p>The fastest path from prompt to production with Gemini.</p>
+## Environment Variables
+Copy `.env.example` to `.env` locally (never commit `.env`):
+- `GEMINI_API_KEY` — Server-side Gemini API key for AI itinerary generation
+- `APP_URL` — Public application URL
 
-  <a href="https://aistudio.google.com/apps">Start building</a>
+## Firebase Console Setup
+1. Provisioned project configuration lives in `firebase-applet-config.json`.
+2. Deploy security rules (`firestore.rules`) and composite indexes (`firestore.indexes.json`) via Firebase CLI or AI Studio.
+3. **Important:** Enable **Email/Password** in **Firebase Console → Authentication → Sign-in method** alongside Google Sign-In so email registration, verification, and password resets work for customers and partners.
 
-</div>
+## Local Development & Production Build
+```bash
+npm install
+npm run dev      # Starts Express + Vite middleware on port 3000
+npm run lint     # Runs TypeScript type-checking (tsc --noEmit)
+npm run build    # Builds Vite production bundle to dist/
+npm start        # Runs Express production server via Node (port 3000)
+```
+
+## GitHub & Vercel Deployment (`alba-travel-concierge`)
+- Default branch: `main`
+- Configure `GEMINI_API_KEY` in Vercel / Cloud environment secrets before deploying.

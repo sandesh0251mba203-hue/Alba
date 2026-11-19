@@ -1,0 +1,555 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Core authenticated user record with RBAC role assignment.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "fullName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "email": { "type": "string", "format": "email", "maxLength": 160 },
+        "role": { "type": "string", "enum": ["customer", "group_member", "venue_partner", "super_admin"] },
+        "city": { "type": "string", "maxLength": 80 },
+        "emailVerified": { "type": "boolean" },
+        "isDeleted": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "fullName", "email", "role", "createdAt", "updatedAt"]
+    },
+    "CustomerProfile": {
+      "title": "CustomerProfile",
+      "description": "Private customer preferences and contact details.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "fullName": { "type": "string", "maxLength": 120 },
+        "email": { "type": "string", "maxLength": 160 },
+        "phone": { "type": "string", "maxLength": 24 },
+        "city": { "type": "string", "maxLength": 80 },
+        "interests": { "type": "array", "description": "Up to 15 interest tags" },
+        "preferredActivities": { "type": "array", "description": "Up to 15 activity tags" },
+        "typicalGroupSize": { "type": "number" },
+        "budgetPreference": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "fullName", "email", "city", "createdAt", "updatedAt"]
+    },
+    "Group": {
+      "title": "Group",
+      "description": "Group outing workspace led by a Group Outing Captain.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "organizerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "organizerName": { "type": "string", "maxLength": 120 },
+        "destination": { "type": "string", "maxLength": 120 },
+        "tripDate": { "type": "string", "maxLength": 32 },
+        "budgetPerPerson": { "type": "number" },
+        "totalBudget": { "type": "number" },
+        "participantLimit": { "type": "number" },
+        "memberIds": { "type": "array", "description": "Bounded up to 20 participant UIDs" },
+        "itineraryId": { "type": "string", "maxLength": 128 },
+        "inviteCode": { "type": "string", "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "status": { "type": "string", "enum": ["planning", "voting", "finalized", "completed", "cancelled"] },
+        "isDeleted": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "organizerId", "destination", "tripDate", "budgetPerPerson", "memberIds", "inviteCode", "status", "createdAt", "updatedAt"]
+    },
+    "GroupMember": {
+      "title": "GroupMember",
+      "description": "Authorized participant membership record in a group.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "groupId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "organizerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "displayName": { "type": "string", "maxLength": 120 },
+        "role": { "type": "string", "enum": ["organizer", "member"] },
+        "preferences": { "type": "string", "maxLength": 300 },
+        "joinedAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "groupId", "userId", "organizerId", "displayName", "role", "createdAt", "updatedAt"]
+    },
+    "GroupInvitation": {
+      "title": "GroupInvitation",
+      "description": "Shareable invitation record for joining a group outing.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "groupId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "groupName": { "type": "string", "maxLength": 120 },
+        "organizerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "inviteCode": { "type": "string", "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "status": { "type": "string", "enum": ["active", "revoked", "expired"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "groupId", "groupName", "organizerId", "inviteCode", "status", "createdAt", "updatedAt"]
+    },
+    "Itinerary": {
+      "title": "Itinerary",
+      "description": "AI-generated or user-curated group itinerary.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "groupId": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 160 },
+        "destination": { "type": "string", "maxLength": 120 },
+        "startingLocation": { "type": "string", "maxLength": 120 },
+        "travelDate": { "type": "string", "maxLength": 32 },
+        "participantsCount": { "type": "number" },
+        "groupType": { "type": "string", "enum": ["Friends", "Family", "Couples", "Solo"] },
+        "budgetPerPerson": { "type": "number" },
+        "estimatedTotalPerPerson": { "type": "number" },
+        "travelMode": { "type": "string", "maxLength": 60 },
+        "summary": { "type": "string", "maxLength": 1500 },
+        "aiGenerated": { "type": "boolean" },
+        "aiDisclaimer": { "type": "string", "maxLength": 400 },
+        "memberIds": { "type": "array", "description": "Bounded up to 20 participant UIDs" },
+        "stopIds": { "type": "array", "description": "Bounded up to 30 itinerary stop IDs" },
+        "isFinalized": { "type": "boolean" },
+        "isDeleted": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "ownerId", "title", "destination", "travelDate", "participantsCount", "groupType", "budgetPerPerson", "aiGenerated", "memberIds", "createdAt", "updatedAt"]
+    },
+    "ItineraryStop": {
+      "title": "ItineraryStop",
+      "description": "Individual time-slotted stop or dining suggestion inside an itinerary.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "itineraryId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "memberIds": { "type": "array", "description": "Bounded up to 20 group participant UIDs" },
+        "orderIndex": { "type": "number" },
+        "timeSlot": { "type": "string", "maxLength": 60 },
+        "durationMinutes": { "type": "number" },
+        "title": { "type": "string", "maxLength": 160 },
+        "category": { "type": "string", "maxLength": 80 },
+        "locality": { "type": "string", "maxLength": 120 },
+        "description": { "type": "string", "maxLength": 800 },
+        "estimatedCostPerPerson": { "type": "number" },
+        "priceType": { "type": "string", "enum": ["estimated", "illustrative", "verified_partner"] },
+        "travelTimeNote": { "type": "string", "maxLength": 160 },
+        "venueId": { "type": "string", "maxLength": 128 },
+        "suggestedByUserId": { "type": "string", "maxLength": 128 },
+        "alternativeOption": { "type": "string", "maxLength": 300 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "itineraryId", "ownerId", "orderIndex", "timeSlot", "title", "category", "estimatedCostPerPerson", "priceType", "createdAt", "updatedAt"]
+    },
+    "ItineraryVote": {
+      "title": "ItineraryVote",
+      "description": "Member vote on an itinerary stop.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "itineraryId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "stopId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "groupId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userName": { "type": "string", "maxLength": 120 },
+        "memberIds": { "type": "array", "description": "Bounded up to 20 participant UIDs" },
+        "vote": { "type": "string", "enum": ["up", "down"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "itineraryId", "stopId", "userId", "vote", "createdAt", "updatedAt"]
+    },
+    "Venue": {
+      "title": "Venue",
+      "description": "Experience or dining venue listing.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "partnerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "partnerUserId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "maxLength": 160 },
+        "category": { "type": "string", "maxLength": 80 },
+        "city": { "type": "string", "maxLength": 80 },
+        "locality": { "type": "string", "maxLength": 120 },
+        "address": { "type": "string", "maxLength": 300 },
+        "description": { "type": "string", "maxLength": 1500 },
+        "imageUrl": { "type": "string", "maxLength": 500 },
+        "videoPreviewUrl": { "type": "string", "maxLength": 500 },
+        "operatingHours": { "type": "string", "maxLength": 120 },
+        "weekdayPrice": { "type": "number" },
+        "weekendPrice": { "type": "number" },
+        "isIllustrativeListing": { "type": "boolean" },
+        "verificationStatus": { "type": "string", "enum": ["pending", "under_review", "approved", "rejected", "suspended"] },
+        "lat": { "type": "number" },
+        "lng": { "type": "number" },
+        "isDeleted": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "partnerUserId", "name", "category", "city", "locality", "description", "weekdayPrice", "weekendPrice", "verificationStatus", "createdAt", "updatedAt"]
+    },
+    "VenuePartner": {
+      "title": "VenuePartner",
+      "description": "Venue partner registration and verification dossier.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "businessName": { "type": "string", "maxLength": 160 },
+        "ownerName": { "type": "string", "maxLength": 120 },
+        "email": { "type": "string", "maxLength": 160 },
+        "phone": { "type": "string", "maxLength": 24 },
+        "category": { "type": "string", "maxLength": 80 },
+        "address": { "type": "string", "maxLength": 300 },
+        "city": { "type": "string", "maxLength": 80 },
+        "locality": { "type": "string", "maxLength": 120 },
+        "gstNumber": { "type": "string", "maxLength": 32 },
+        "registrationDetails": { "type": "string", "maxLength": 300 },
+        "operatingHours": { "type": "string", "maxLength": 120 },
+        "verificationStatus": { "type": "string", "enum": ["pending", "under_review", "approved", "rejected", "suspended"] },
+        "commissionRatePercent": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "businessName", "ownerName", "email", "phone", "category", "city", "locality", "verificationStatus", "createdAt", "updatedAt"]
+    },
+    "VenueStaff": {
+      "title": "VenueStaff",
+      "description": "Authorized staff member linked to a venue partner.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "partnerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "partnerUserId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "staffName": { "type": "string", "maxLength": 120 },
+        "staffEmail": { "type": "string", "maxLength": 160 },
+        "role": { "type": "string", "enum": ["manager", "desk"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "partnerId", "partnerUserId", "staffName", "staffEmail", "role", "createdAt", "updatedAt"]
+    },
+    "Activity": {
+      "title": "Activity",
+      "description": "Bookable activity offered at a venue.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "venueId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "partnerUserId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "maxLength": 160 },
+        "category": { "type": "string", "maxLength": 80 },
+        "description": { "type": "string", "maxLength": 800 },
+        "durationMinutes": { "type": "number" },
+        "isPublished": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "venueId", "partnerUserId", "name", "category", "durationMinutes", "isPublished", "createdAt", "updatedAt"]
+    },
+    "ActivityPricing": {
+      "title": "ActivityPricing",
+      "description": "Standard weekday and weekend rates for an activity.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "activityId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "venueId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "partnerUserId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "weekdayRate": { "type": "number" },
+        "weekendRate": { "type": "number" },
+        "currency": { "type": "string", "maxLength": 8 },
+        "isConfirmedByPartner": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "activityId", "venueId", "partnerUserId", "weekdayRate", "weekendRate", "currency", "createdAt", "updatedAt"]
+    },
+    "VenueInventory": {
+      "title": "VenueInventory",
+      "description": "Date and time-slot inventory capacity for a venue.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "venueId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "partnerUserId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "date": { "type": "string", "maxLength": 32 },
+        "timeSlot": { "type": "string", "maxLength": 48 },
+        "totalSlots": { "type": "number" },
+        "availableSlots": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "venueId", "partnerUserId", "date", "timeSlot", "totalSlots", "availableSlots", "createdAt", "updatedAt"]
+    },
+    "PriceLockOffer": {
+      "title": "PriceLockOffer",
+      "description": "Advance weekday-rate price lock offer for weekend slots (3+ days ahead).",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "venueId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "venueName": { "type": "string", "maxLength": 160 },
+        "partnerUserId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "maxLength": 160 },
+        "weekdayPrice": { "type": "number" },
+        "weekendPrice": { "type": "number" },
+        "albaAdvancePrice": { "type": "number" },
+        "discountPercent": { "type": "number" },
+        "minAdvanceDays": { "type": "number" },
+        "availableSlots": { "type": "number" },
+        "activityDate": { "type": "string", "maxLength": 32 },
+        "bookingDeadline": { "type": "string", "maxLength": 32 },
+        "expiresAt": { "type": "string", "maxLength": 32 },
+        "partnerTerms": { "type": "string", "maxLength": 600 },
+        "cancellationPolicy": { "type": "string", "maxLength": 400 },
+        "offerStatus": { "type": "string", "enum": ["awaiting_partner_confirmation", "active", "expired", "paused"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "venueId", "venueName", "partnerUserId", "weekdayPrice", "weekendPrice", "albaAdvancePrice", "minAdvanceDays", "offerStatus", "createdAt", "updatedAt"]
+    },
+    "Booking": {
+      "title": "Booking",
+      "description": "Customer group booking request and confirmed pricing snapshot.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "idempotencyKey": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "customerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "customerName": { "type": "string", "maxLength": 120 },
+        "venueId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "venueName": { "type": "string", "maxLength": 160 },
+        "partnerUserId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "groupId": { "type": "string", "maxLength": 128 },
+        "itineraryId": { "type": "string", "maxLength": 128 },
+        "activityDate": { "type": "string", "maxLength": 32 },
+        "timeSlot": { "type": "string", "maxLength": 48 },
+        "participants": { "type": "number" },
+        "standardWeekendUnitPrice": { "type": "number" },
+        "lockedUnitPrice": { "type": "number" },
+        "priceLockApplied": { "type": "boolean" },
+        "priceLockOfferId": { "type": "string", "maxLength": 128 },
+        "grossAmount": { "type": "number" },
+        "customerSavings": { "type": "number" },
+        "commissionRatePercent": { "type": "number" },
+        "platformCommission": { "type": "number" },
+        "merchantPayable": { "type": "number" },
+        "status": {
+          "type": "string",
+          "enum": ["draft", "pending", "accepted", "rejected", "confirmed", "cancelled", "completed", "refund_requested", "refunded"]
+        },
+        "paymentStatus": { "type": "string", "enum": ["unpaid", "instructions_sent", "reference_submitted", "verified", "refunded"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "idempotencyKey", "customerId", "venueId", "venueName", "partnerUserId", "activityDate", "timeSlot", "participants", "lockedUnitPrice", "grossAmount", "status", "paymentStatus", "createdAt", "updatedAt"]
+    },
+    "BookingStatusHistory": {
+      "title": "BookingStatusHistory",
+      "description": "Immutable append-only audit trail of booking state transitions.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "bookingId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "customerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "partnerUserId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "fromStatus": { "type": "string", "maxLength": 40 },
+        "toStatus": { "type": "string", "maxLength": 40 },
+        "changedBy": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "note": { "type": "string", "maxLength": 400 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "bookingId", "customerId", "partnerUserId", "toStatus", "changedBy", "createdAt"]
+    },
+    "Payment": {
+      "title": "Payment",
+      "description": "Manual payment instruction and UPI/reference recording for MVP bookings.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "bookingId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "customerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "partnerUserId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "amount": { "type": "number" },
+        "method": { "type": "string", "enum": ["upi_manual", "pay_at_venue", "gateway_pending"] },
+        "upiInstruction": { "type": "string", "maxLength": 300 },
+        "transactionRef": { "type": "string", "maxLength": 120 },
+        "status": { "type": "string", "enum": ["instructions_sent", "reference_submitted", "verified", "refunded"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "bookingId", "customerId", "partnerUserId", "amount", "method", "status", "createdAt", "updatedAt"]
+    },
+    "Review": {
+      "title": "Review",
+      "description": "Verified customer review tied to a completed booking.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "venueId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "bookingId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "customerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "customerName": { "type": "string", "maxLength": 120 },
+        "rating": { "type": "number" },
+        "comment": { "type": "string", "maxLength": 1000 },
+        "isVerifiedBooking": { "type": "boolean" },
+        "partnerResponse": { "type": "string", "maxLength": 600 },
+        "moderationStatus": { "type": "string", "enum": ["published", "flagged", "removed"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "venueId", "bookingId", "customerId", "customerName", "rating", "comment", "isVerifiedBooking", "moderationStatus", "createdAt", "updatedAt"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "In-app notification message for users and partners.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "type": { "type": "string", "maxLength": 64 },
+        "title": { "type": "string", "maxLength": 160 },
+        "message": { "type": "string", "maxLength": 500 },
+        "link": { "type": "string", "maxLength": 200 },
+        "isRead": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "type", "title", "message", "isRead", "createdAt", "updatedAt"]
+    },
+    "Favourite": {
+      "title": "Favourite",
+      "description": "Customer saved venue or activity favourite.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "itemType": { "type": "string", "enum": ["venue", "activity"] },
+        "itemId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "itemTitle": { "type": "string", "maxLength": 160 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "itemType", "itemId", "itemTitle", "createdAt"]
+    },
+    "SupportTicket": {
+      "title": "SupportTicket",
+      "description": "Customer or partner support inquiry / complaint.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userName": { "type": "string", "maxLength": 120 },
+        "bookingId": { "type": "string", "maxLength": 128 },
+        "category": { "type": "string", "maxLength": 80 },
+        "priority": { "type": "string", "enum": ["low", "medium", "high", "urgent"] },
+        "subject": { "type": "string", "maxLength": 200 },
+        "status": { "type": "string", "enum": ["open", "in_progress", "resolved", "closed"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "userName", "category", "priority", "subject", "status", "createdAt", "updatedAt"]
+    },
+    "SupportMessage": {
+      "title": "SupportMessage",
+      "description": "Reply or internal admin note inside a support ticket.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ticketId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ticketOwnerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "senderId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "senderRole": { "type": "string", "enum": ["customer", "venue_partner", "super_admin"] },
+        "body": { "type": "string", "maxLength": 2000 },
+        "isInternalNote": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "ticketId", "ticketOwnerId", "senderId", "senderRole", "body", "isInternalNote", "createdAt"]
+    },
+    "Settlement": {
+      "title": "Settlement",
+      "description": "Partner payout settlement record managed by Super Admin.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "partnerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "partnerUserId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "partnerName": { "type": "string", "maxLength": 160 },
+        "grossAmount": { "type": "number" },
+        "commissionDeducted": { "type": "number" },
+        "netPayable": { "type": "number" },
+        "status": { "type": "string", "enum": ["pending", "processing", "settled"] },
+        "payoutReference": { "type": "string", "maxLength": 120 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "partnerId", "partnerUserId", "partnerName", "grossAmount", "commissionDeducted", "netPayable", "status", "createdAt", "updatedAt"]
+    },
+    "PlatformSetting": {
+      "title": "PlatformSetting",
+      "description": "Global commission defaults, venture-plan scenario assumptions, and campaigns.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "defaultCommissionPercent": { "type": "number" },
+        "minAdvanceDays": { "type": "number" },
+        "activeCity": { "type": "string", "maxLength": 80 },
+        "updatedBy": { "type": "string", "maxLength": 128 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "defaultCommissionPercent", "minAdvanceDays", "activeCity", "updatedAt"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Immutable audit log of sensitive operations.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "actorId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "action": { "type": "string", "maxLength": 120 },
+        "entityType": { "type": "string", "maxLength": 80 },
+        "entityId": { "type": "string", "maxLength": 128 },
+        "details": { "type": "string", "maxLength": 600 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "actorId", "action", "entityType", "entityId", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": { "schema": { "$ref": "#/entities/User" }, "description": "User identity and RBAC role document." },
+    "/customer_profiles/{userId}": { "schema": { "$ref": "#/entities/CustomerProfile" }, "description": "Private customer profile preferences and PII." },
+    "/groups/{groupId}": { "schema": { "$ref": "#/entities/Group" }, "description": "Group outing workspace." },
+    "/group_members/{memberId}": { "schema": { "$ref": "#/entities/GroupMember" }, "description": "Authorized group memberships." },
+    "/group_invitations/{invitationId}": { "schema": { "$ref": "#/entities/GroupInvitation" }, "description": "Group invitation codes and status." },
+    "/itineraries/{itineraryId}": { "schema": { "$ref": "#/entities/Itinerary" }, "description": "Saved group and solo itineraries." },
+    "/itinerary_stops/{stopId}": { "schema": { "$ref": "#/entities/ItineraryStop" }, "description": "Time-slotted itinerary stops." },
+    "/itinerary_votes/{voteId}": { "schema": { "$ref": "#/entities/ItineraryVote" }, "description": "Participant votes on itinerary stops." },
+    "/venues/{venueId}": { "schema": { "$ref": "#/entities/Venue" }, "description": "Venues catalog (publicly readable only when approved)." },
+    "/venue_partners/{partnerId}": { "schema": { "$ref": "#/entities/VenuePartner" }, "description": "Venue partner applications and verification status." },
+    "/venue_staff/{staffId}": { "schema": { "$ref": "#/entities/VenueStaff" }, "description": "Staff accounts linked to venue partners." },
+    "/activities/{activityId}": { "schema": { "$ref": "#/entities/Activity" }, "description": "Activities hosted by venues." },
+    "/activity_pricing/{pricingId}": { "schema": { "$ref": "#/entities/ActivityPricing" }, "description": "Weekday/weekend pricing records for activities." },
+    "/venue_inventory/{inventoryId}": { "schema": { "$ref": "#/entities/VenueInventory" }, "description": "Date/slot capacity records for venues." },
+    "/price_lock_offers/{offerId}": { "schema": { "$ref": "#/entities/PriceLockOffer" }, "description": "Advance weekday-rate price lock offers." },
+    "/bookings/{bookingId}": { "schema": { "$ref": "#/entities/Booking" }, "description": "Customer group booking requests and confirmed records." },
+    "/booking_status_history/{historyId}": { "schema": { "$ref": "#/entities/BookingStatusHistory" }, "description": "Immutable booking transition history." },
+    "/payments/{paymentId}": { "schema": { "$ref": "#/entities/Payment" }, "description": "Booking payment instructions and references." },
+    "/reviews/{reviewId}": { "schema": { "$ref": "#/entities/Review" }, "description": "Verified customer reviews tied to completed bookings." },
+    "/notifications/{notificationId}": { "schema": { "$ref": "#/entities/Notification" }, "description": "In-app notifications per user." },
+    "/favourites/{favouriteId}": { "schema": { "$ref": "#/entities/Favourite" }, "description": "User saved venues and activities." },
+    "/support_tickets/{ticketId}": { "schema": { "$ref": "#/entities/SupportTicket" }, "description": "Customer and partner support tickets." },
+    "/support_messages/{messageId}": { "schema": { "$ref": "#/entities/SupportMessage" }, "description": "Messages and internal admin notes on tickets." },
+    "/settlements/{settlementId}": { "schema": { "$ref": "#/entities/Settlement" }, "description": "Partner payout settlements." },
+    "/platform_settings/{settingId}": { "schema": { "$ref": "#/entities/PlatformSetting" }, "description": "Platform commission and financial assumption settings." },
+    "/audit_logs/{logId}": { "schema": { "$ref": "#/entities/AuditLog" }, "description": "Immutable platform audit log." }
+  }
+}

@@ -1,0 +1,1173 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // -------------------------------------------------------------------------
+    // Global Primitives & Helpers
+    // -------------------------------------------------------------------------
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdminByEmail() {
+      return isVerifiedUser() && request.auth.token.email == 'sandesh.0251mba203@dgu.ac.in';
+    }
+
+    function isAdmin() {
+      return isAdminByEmail() || (
+        isVerifiedUser() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isValidString(val, minLen, maxLen) {
+      return val is string && val.size() >= minLen && val.size() <= maxLen;
+    }
+
+    function isBoundedStringList(arr, maxLen) {
+      return arr is list && arr.size() <= maxLen && (arr.size() == 0 || arr[0] is string);
+    }
+
+    // -------------------------------------------------------------------------
+    // Entity Validation Blueprints
+    // -------------------------------------------------------------------------
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'fullName', 'email', 'role', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'fullName', 'email', 'role', 'city', 'emailVerified', 'isDeleted', 'createdAt', 'updatedAt'])
+        && isValidId(data.uid)
+        && isValidString(data.fullName, 1, 120)
+        && isValidString(data.email, 3, 160)
+        && data.role in ['customer', 'group_member', 'venue_partner', 'super_admin']
+        && (!('city' in data) || isValidString(data.city, 0, 80))
+        && (!('emailVerified' in data) || data.emailVerified is bool)
+        && (!('isDeleted' in data) || data.isDeleted is bool)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidCustomerProfile(data) {
+      return data.keys().hasAll(['userId', 'fullName', 'email', 'city', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['userId', 'fullName', 'email', 'phone', 'city', 'interests', 'preferredActivities', 'typicalGroupSize', 'budgetPreference', 'createdAt', 'updatedAt'])
+        && isValidId(data.userId)
+        && isValidString(data.fullName, 1, 120)
+        && isValidString(data.email, 3, 160)
+        && isValidString(data.city, 1, 80)
+        && (!('phone' in data) || isValidString(data.phone, 0, 24))
+        && (!('interests' in data) || isBoundedStringList(data.interests, 15))
+        && (!('preferredActivities' in data) || isBoundedStringList(data.preferredActivities, 15))
+        && (!('typicalGroupSize' in data) || (data.typicalGroupSize is number && data.typicalGroupSize >= 1 && data.typicalGroupSize <= 50))
+        && (!('budgetPreference' in data) || (data.budgetPreference is number && data.budgetPreference >= 0 && data.budgetPreference <= 100000))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidGroup(data) {
+      return data.keys().hasAll(['id', 'name', 'organizerId', 'destination', 'tripDate', 'budgetPerPerson', 'memberIds', 'inviteCode', 'status', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'name', 'organizerId', 'organizerName', 'destination', 'tripDate', 'budgetPerPerson', 'totalBudget', 'participantLimit', 'memberIds', 'itineraryId', 'inviteCode', 'status', 'isDeleted', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && isValidString(data.name, 2, 120)
+        && isValidId(data.organizerId)
+        && isValidString(data.destination, 1, 120)
+        && isValidString(data.tripDate, 4, 32)
+        && data.budgetPerPerson is number && data.budgetPerPerson >= 0 && data.budgetPerPerson <= 200000
+        && (!('totalBudget' in data) || (data.totalBudget is number && data.totalBudget >= 0))
+        && (!('participantLimit' in data) || (data.participantLimit is number && data.participantLimit >= 1 && data.participantLimit <= 30))
+        && isBoundedStringList(data.memberIds, 20)
+        && (!('itineraryId' in data) || isValidString(data.itineraryId, 0, 128))
+        && (!('organizerName' in data) || isValidString(data.organizerName, 0, 120))
+        && isValidId(data.inviteCode)
+        && data.status in ['planning', 'voting', 'finalized', 'completed', 'cancelled']
+        && (!('isDeleted' in data) || data.isDeleted is bool)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidGroupMember(data) {
+      return data.keys().hasAll(['id', 'groupId', 'userId', 'organizerId', 'displayName', 'role', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'groupId', 'userId', 'organizerId', 'displayName', 'role', 'preferences', 'joinedAt', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && isValidId(data.groupId)
+        && isValidId(data.userId)
+        && isValidId(data.organizerId)
+        && isValidString(data.displayName, 1, 120)
+        && data.role in ['organizer', 'member']
+        && (!('preferences' in data) || isValidString(data.preferences, 0, 300))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidGroupInvitation(data) {
+      return data.keys().hasAll(['id', 'groupId', 'groupName', 'organizerId', 'inviteCode', 'status', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'groupId', 'groupName', 'organizerId', 'inviteCode', 'status', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && isValidId(data.groupId)
+        && isValidString(data.groupName, 1, 120)
+        && isValidId(data.organizerId)
+        && isValidId(data.inviteCode)
+        && data.status in ['active', 'revoked', 'expired']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidItinerary(data) {
+      return data.keys().hasAll(['id', 'ownerId', 'title', 'destination', 'travelDate', 'participantsCount', 'groupType', 'budgetPerPerson', 'aiGenerated', 'memberIds', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'ownerId', 'groupId', 'title', 'destination', 'startingLocation', 'travelDate', 'participantsCount', 'groupType', 'budgetPerPerson', 'estimatedTotalPerPerson', 'travelMode', 'summary', 'aiGenerated', 'aiDisclaimer', 'memberIds', 'stopIds', 'isFinalized', 'isDeleted', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && isValidId(data.ownerId)
+        && (!('groupId' in data) || isValidString(data.groupId, 0, 128))
+        && isValidString(data.title, 2, 160)
+        && isValidString(data.destination, 2, 120)
+        && (!('startingLocation' in data) || isValidString(data.startingLocation, 0, 120))
+        && isValidString(data.travelDate, 4, 32)
+        && data.participantsCount is number && data.participantsCount >= 1 && data.participantsCount <= 50
+        && data.groupType in ['Friends', 'Family', 'Couples', 'Solo']
+        && data.budgetPerPerson is number && data.budgetPerPerson >= 0 && data.budgetPerPerson <= 200000
+        && (!('estimatedTotalPerPerson' in data) || (data.estimatedTotalPerPerson is number && data.estimatedTotalPerPerson >= 0))
+        && (!('travelMode' in data) || isValidString(data.travelMode, 0, 60))
+        && (!('summary' in data) || isValidString(data.summary, 0, 1500))
+        && data.aiGenerated is bool
+        && (!('aiDisclaimer' in data) || isValidString(data.aiDisclaimer, 0, 400))
+        && isBoundedStringList(data.memberIds, 20)
+        && (!('stopIds' in data) || isBoundedStringList(data.stopIds, 30))
+        && (!('isFinalized' in data) || data.isFinalized is bool)
+        && (!('isDeleted' in data) || data.isDeleted is bool)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidItineraryStop(data) {
+      return data.keys().hasAll(['id', 'itineraryId', 'ownerId', 'orderIndex', 'timeSlot', 'title', 'category', 'estimatedCostPerPerson', 'priceType', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'itineraryId', 'ownerId', 'memberIds', 'orderIndex', 'timeSlot', 'durationMinutes', 'title', 'category', 'locality', 'description', 'estimatedCostPerPerson', 'priceType', 'travelTimeNote', 'venueId', 'suggestedByUserId', 'alternativeOption', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && isValidId(data.itineraryId)
+        && isValidId(data.ownerId)
+        && (!('memberIds' in data) || isBoundedStringList(data.memberIds, 20))
+        && data.orderIndex is number && data.orderIndex >= 0 && data.orderIndex <= 50
+        && isValidString(data.timeSlot, 2, 60)
+        && (!('durationMinutes' in data) || (data.durationMinutes is number && data.durationMinutes >= 5 && data.durationMinutes <= 1440))
+        && isValidString(data.title, 2, 160)
+        && isValidString(data.category, 2, 80)
+        && (!('locality' in data) || isValidString(data.locality, 0, 120))
+        && (!('description' in data) || isValidString(data.description, 0, 800))
+        && data.estimatedCostPerPerson is number && data.estimatedCostPerPerson >= 0 && data.estimatedCostPerPerson <= 200000
+        && data.priceType in ['estimated', 'illustrative', 'verified_partner']
+        && (!('travelTimeNote' in data) || isValidString(data.travelTimeNote, 0, 160))
+        && (!('venueId' in data) || isValidString(data.venueId, 0, 128))
+        && (!('suggestedByUserId' in data) || isValidString(data.suggestedByUserId, 0, 128))
+        && (!('alternativeOption' in data) || isValidString(data.alternativeOption, 0, 300))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidItineraryVote(data) {
+      return data.keys().hasAll(['id', 'itineraryId', 'stopId', 'userId', 'vote', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'itineraryId', 'stopId', 'groupId', 'userId', 'userName', 'memberIds', 'vote', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && isValidId(data.itineraryId)
+        && isValidId(data.stopId)
+        && (!('groupId' in data) || isValidString(data.groupId, 0, 128))
+        && isValidId(data.userId)
+        && (!('userName' in data) || isValidString(data.userName, 0, 120))
+        && (!('memberIds' in data) || isBoundedStringList(data.memberIds, 20))
+        && data.vote in ['up', 'down']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidVenue(data) {
+      return data.keys().hasAll(['id', 'partnerUserId', 'name', 'category', 'city', 'locality', 'description', 'weekdayPrice', 'weekendPrice', 'verificationStatus', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'partnerId', 'partnerUserId', 'name', 'category', 'city', 'locality', 'address', 'description', 'imageUrl', 'videoPreviewUrl', 'operatingHours', 'weekdayPrice', 'weekendPrice', 'isIllustrativeListing', 'verificationStatus', 'lat', 'lng', 'isDeleted', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && (!('partnerId' in data) || isValidId(data.partnerId))
+        && isValidId(data.partnerUserId)
+        && isValidString(data.name, 2, 160)
+        && isValidString(data.category, 2, 80)
+        && isValidString(data.city, 2, 80)
+        && isValidString(data.locality, 2, 120)
+        && (!('address' in data) || isValidString(data.address, 0, 300))
+        && isValidString(data.description, 5, 1500)
+        && (!('imageUrl' in data) || isValidString(data.imageUrl, 0, 500))
+        && (!('videoPreviewUrl' in data) || isValidString(data.videoPreviewUrl, 0, 500))
+        && (!('operatingHours' in data) || isValidString(data.operatingHours, 0, 120))
+        && data.weekdayPrice is number && data.weekdayPrice >= 0 && data.weekdayPrice <= 200000
+        && data.weekendPrice is number && data.weekendPrice >= 0 && data.weekendPrice <= 200000
+        && (!('isIllustrativeListing' in data) || data.isIllustrativeListing is bool)
+        && data.verificationStatus in ['pending', 'under_review', 'approved', 'rejected', 'suspended']
+        && (!('lat' in data) || data.lat is number)
+        && (!('lng' in data) || data.lng is number)
+        && (!('isDeleted' in data) || data.isDeleted is bool)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidVenuePartner(data) {
+      return data.keys().hasAll(['id', 'userId', 'businessName', 'ownerName', 'email', 'phone', 'category', 'city', 'locality', 'verificationStatus', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'userId', 'businessName', 'ownerName', 'email', 'phone', 'category', 'address', 'city', 'locality', 'gstNumber', 'registrationDetails', 'operatingHours', 'verificationStatus', 'commissionRatePercent', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && isValidId(data.userId)
+        && isValidString(data.businessName, 2, 160)
+        && isValidString(data.ownerName, 2, 120)
+        && isValidString(data.email, 3, 160)
+        && isValidString(data.phone, 5, 24)
+        && isValidString(data.category, 2, 80)
+        && (!('address' in data) || isValidString(data.address, 0, 300))
+        && isValidString(data.city, 2, 80)
+        && isValidString(data.locality, 2, 120)
+        && (!('gstNumber' in data) || isValidString(data.gstNumber, 0, 32))
+        && (!('registrationDetails' in data) || isValidString(data.registrationDetails, 0, 300))
+        && (!('operatingHours' in data) || isValidString(data.operatingHours, 0, 120))
+        && data.verificationStatus in ['pending', 'under_review', 'approved', 'rejected', 'suspended']
+        && (!('commissionRatePercent' in data) || (data.commissionRatePercent is number && data.commissionRatePercent >= 0 && data.commissionRatePercent <= 50))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidVenueStaff(data) {
+      return data.keys().hasAll(['id', 'partnerId', 'partnerUserId', 'staffName', 'staffEmail', 'role', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'partnerId', 'partnerUserId', 'staffName', 'staffEmail', 'role', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && isValidId(data.partnerId)
+        && isValidId(data.partnerUserId)
+        && isValidString(data.staffName, 1, 120)
+        && isValidString(data.staffEmail, 3, 160)
+        && data.role in ['manager', 'desk']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidActivity(data) {
+      return data.keys().hasAll(['id', 'venueId', 'partnerUserId', 'name', 'category', 'durationMinutes', 'isPublished', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'venueId', 'partnerUserId', 'name', 'category', 'description', 'durationMinutes', 'isPublished', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && isValidId(data.venueId)
+        && isValidId(data.partnerUserId)
+        && isValidString(data.name, 2, 160)
+        && isValidString(data.category, 2, 80)
+        && (!('description' in data) || isValidString(data.description, 0, 800))
+        && data.durationMinutes is number && data.durationMinutes >= 5 && data.durationMinutes <= 1440
+        && data.isPublished is bool
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidActivityPricing(data) {
+      return data.keys().hasAll(['id', 'activityId', 'venueId', 'partnerUserId', 'weekdayRate', 'weekendRate', 'currency', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'activityId', 'venueId', 'partnerUserId', 'weekdayRate', 'weekendRate', 'currency', 'isConfirmedByPartner', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && isValidId(data.activityId)
+        && isValidId(data.venueId)
+        && isValidId(data.partnerUserId)
+        && data.weekdayRate is number && data.weekdayRate >= 0 && data.weekdayRate <= 200000
+        && data.weekendRate is number && data.weekendRate >= 0 && data.weekendRate <= 200000
+        && isValidString(data.currency, 3, 8)
+        && (!('isConfirmedByPartner' in data) || data.isConfirmedByPartner is bool)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidVenueInventory(data) {
+      return data.keys().hasAll(['id', 'venueId', 'partnerUserId', 'date', 'timeSlot', 'totalSlots', 'availableSlots', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'venueId', 'partnerUserId', 'date', 'timeSlot', 'totalSlots', 'availableSlots', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && isValidId(data.venueId)
+        && isValidId(data.partnerUserId)
+        && isValidString(data.date, 4, 32)
+        && isValidString(data.timeSlot, 2, 48)
+        && data.totalSlots is number && data.totalSlots >= 0 && data.totalSlots <= 5000
+        && data.availableSlots is number && data.availableSlots >= 0 && data.availableSlots <= data.totalSlots
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidPriceLockOffer(data) {
+      return data.keys().hasAll(['id', 'venueId', 'venueName', 'partnerUserId', 'weekdayPrice', 'weekendPrice', 'albaAdvancePrice', 'minAdvanceDays', 'offerStatus', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'venueId', 'venueName', 'partnerUserId', 'title', 'weekdayPrice', 'weekendPrice', 'albaAdvancePrice', 'discountPercent', 'minAdvanceDays', 'availableSlots', 'activityDate', 'bookingDeadline', 'expiresAt', 'partnerTerms', 'cancellationPolicy', 'offerStatus', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && isValidId(data.venueId)
+        && isValidString(data.venueName, 2, 160)
+        && isValidId(data.partnerUserId)
+        && (!('title' in data) || isValidString(data.title, 0, 160))
+        && data.weekdayPrice is number && data.weekdayPrice >= 0
+        && data.weekendPrice is number && data.weekendPrice >= 0
+        && data.albaAdvancePrice is number && data.albaAdvancePrice >= 0
+        && (!('discountPercent' in data) || (data.discountPercent is number && data.discountPercent >= 0 && data.discountPercent <= 95))
+        && data.minAdvanceDays is number && data.minAdvanceDays >= 3 && data.minAdvanceDays <= 90
+        && (!('availableSlots' in data) || (data.availableSlots is number && data.availableSlots >= 0))
+        && (!('activityDate' in data) || isValidString(data.activityDate, 0, 32))
+        && (!('bookingDeadline' in data) || isValidString(data.bookingDeadline, 0, 32))
+        && (!('expiresAt' in data) || isValidString(data.expiresAt, 0, 32))
+        && (!('partnerTerms' in data) || isValidString(data.partnerTerms, 0, 600))
+        && (!('cancellationPolicy' in data) || isValidString(data.cancellationPolicy, 0, 400))
+        && data.offerStatus in ['awaiting_partner_confirmation', 'active', 'expired', 'paused']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidBooking(data) {
+      return data.keys().hasAll(['id', 'idempotencyKey', 'customerId', 'venueId', 'venueName', 'partnerUserId', 'activityDate', 'timeSlot', 'participants', 'lockedUnitPrice', 'grossAmount', 'status', 'paymentStatus', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'idempotencyKey', 'customerId', 'customerName', 'venueId', 'venueName', 'partnerUserId', 'groupId', 'itineraryId', 'activityDate', 'timeSlot', 'participants', 'standardWeekendUnitPrice', 'lockedUnitPrice', 'priceLockApplied', 'priceLockOfferId', 'grossAmount', 'customerSavings', 'commissionRatePercent', 'platformCommission', 'merchantPayable', 'status', 'paymentStatus', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && isValidId(data.idempotencyKey)
+        && isValidId(data.customerId)
+        && (!('customerName' in data) || isValidString(data.customerName, 0, 120))
+        && isValidId(data.venueId)
+        && isValidString(data.venueName, 2, 160)
+        && isValidId(data.partnerUserId)
+        && (!('groupId' in data) || isValidString(data.groupId, 0, 128))
+        && (!('itineraryId' in data) || isValidString(data.itineraryId, 0, 128))
+        && isValidString(data.activityDate, 4, 32)
+        && isValidString(data.timeSlot, 2, 48)
+        && data.participants is number && data.participants >= 1 && data.participants <= 50
+        && (!('standardWeekendUnitPrice' in data) || (data.standardWeekendUnitPrice is number && data.standardWeekendUnitPrice >= 0))
+        && data.lockedUnitPrice is number && data.lockedUnitPrice >= 0
+        && (!('priceLockApplied' in data) || data.priceLockApplied is bool)
+        && (!('priceLockOfferId' in data) || isValidString(data.priceLockOfferId, 0, 128))
+        && data.grossAmount is number && data.grossAmount >= 0
+        && (!('customerSavings' in data) || (data.customerSavings is number && data.customerSavings >= 0))
+        && (!('commissionRatePercent' in data) || (data.commissionRatePercent is number && data.commissionRatePercent >= 0 && data.commissionRatePercent <= 50))
+        && (!('platformCommission' in data) || (data.platformCommission is number && data.platformCommission >= 0))
+        && (!('merchantPayable' in data) || (data.merchantPayable is number && data.merchantPayable >= 0))
+        && data.status in ['draft', 'pending', 'accepted', 'rejected', 'confirmed', 'cancelled', 'completed', 'refund_requested', 'refunded']
+        && data.paymentStatus in ['unpaid', 'instructions_sent', 'reference_submitted', 'verified', 'refunded']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidBookingStatusHistory(data) {
+      return data.keys().hasAll(['id', 'bookingId', 'customerId', 'partnerUserId', 'toStatus', 'changedBy', 'createdAt'])
+        && data.keys().hasOnly(['id', 'bookingId', 'customerId', 'partnerUserId', 'fromStatus', 'toStatus', 'changedBy', 'note', 'createdAt'])
+        && isValidId(data.id)
+        && isValidId(data.bookingId)
+        && isValidId(data.customerId)
+        && isValidId(data.partnerUserId)
+        && (!('fromStatus' in data) || isValidString(data.fromStatus, 0, 40))
+        && isValidString(data.toStatus, 2, 40)
+        && isValidId(data.changedBy)
+        && (!('note' in data) || isValidString(data.note, 0, 400))
+        && data.createdAt is timestamp;
+    }
+
+    function isValidPayment(data) {
+      return data.keys().hasAll(['id', 'bookingId', 'customerId', 'partnerUserId', 'amount', 'method', 'status', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'bookingId', 'customerId', 'partnerUserId', 'amount', 'method', 'upiInstruction', 'transactionRef', 'status', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && isValidId(data.bookingId)
+        && isValidId(data.customerId)
+        && isValidId(data.partnerUserId)
+        && data.amount is number && data.amount >= 0
+        && data.method in ['upi_manual', 'pay_at_venue', 'gateway_pending']
+        && (!('upiInstruction' in data) || isValidString(data.upiInstruction, 0, 300))
+        && (!('transactionRef' in data) || isValidString(data.transactionRef, 0, 120))
+        && data.status in ['instructions_sent', 'reference_submitted', 'verified', 'refunded']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidReview(data) {
+      return data.keys().hasAll(['id', 'venueId', 'bookingId', 'customerId', 'customerName', 'rating', 'comment', 'isVerifiedBooking', 'moderationStatus', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'venueId', 'bookingId', 'customerId', 'customerName', 'rating', 'comment', 'isVerifiedBooking', 'partnerResponse', 'moderationStatus', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && isValidId(data.venueId)
+        && isValidId(data.bookingId)
+        && isValidId(data.customerId)
+        && isValidString(data.customerName, 1, 120)
+        && data.rating is number && data.rating >= 1 && data.rating <= 5
+        && isValidString(data.comment, 3, 1000)
+        && data.isVerifiedBooking is bool
+        && (!('partnerResponse' in data) || isValidString(data.partnerResponse, 0, 600))
+        && data.moderationStatus in ['published', 'flagged', 'removed']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidNotification(data) {
+      return data.keys().hasAll(['id', 'userId', 'type', 'title', 'message', 'isRead', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'userId', 'type', 'title', 'message', 'link', 'isRead', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && isValidId(data.userId)
+        && isValidString(data.type, 2, 64)
+        && isValidString(data.title, 2, 160)
+        && isValidString(data.message, 2, 500)
+        && (!('link' in data) || isValidString(data.link, 0, 200))
+        && data.isRead is bool
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidFavourite(data) {
+      return data.keys().hasAll(['id', 'userId', 'itemType', 'itemId', 'itemTitle', 'createdAt'])
+        && data.keys().hasOnly(['id', 'userId', 'itemType', 'itemId', 'itemTitle', 'createdAt'])
+        && isValidId(data.id)
+        && isValidId(data.userId)
+        && data.itemType in ['venue', 'activity']
+        && isValidId(data.itemId)
+        && isValidString(data.itemTitle, 1, 160)
+        && data.createdAt is timestamp;
+    }
+
+    function isValidSupportTicket(data) {
+      return data.keys().hasAll(['id', 'userId', 'userName', 'category', 'priority', 'subject', 'status', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'userId', 'userName', 'bookingId', 'category', 'priority', 'subject', 'status', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && isValidId(data.userId)
+        && isValidString(data.userName, 1, 120)
+        && (!('bookingId' in data) || isValidString(data.bookingId, 0, 128))
+        && isValidString(data.category, 2, 80)
+        && data.priority in ['low', 'medium', 'high', 'urgent']
+        && isValidString(data.subject, 2, 200)
+        && data.status in ['open', 'in_progress', 'resolved', 'closed']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidSupportMessage(data) {
+      return data.keys().hasAll(['id', 'ticketId', 'ticketOwnerId', 'senderId', 'senderRole', 'body', 'isInternalNote', 'createdAt'])
+        && data.keys().hasOnly(['id', 'ticketId', 'ticketOwnerId', 'senderId', 'senderRole', 'body', 'isInternalNote', 'createdAt'])
+        && isValidId(data.id)
+        && isValidId(data.ticketId)
+        && isValidId(data.ticketOwnerId)
+        && isValidId(data.senderId)
+        && data.senderRole in ['customer', 'venue_partner', 'super_admin']
+        && isValidString(data.body, 1, 2000)
+        && data.isInternalNote is bool
+        && data.createdAt is timestamp;
+    }
+
+    function isValidSettlement(data) {
+      return data.keys().hasAll(['id', 'partnerId', 'partnerUserId', 'partnerName', 'grossAmount', 'commissionDeducted', 'netPayable', 'status', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'partnerId', 'partnerUserId', 'partnerName', 'grossAmount', 'commissionDeducted', 'netPayable', 'status', 'payoutReference', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && isValidId(data.partnerId)
+        && isValidId(data.partnerUserId)
+        && isValidString(data.partnerName, 2, 160)
+        && data.grossAmount is number && data.grossAmount >= 0
+        && data.commissionDeducted is number && data.commissionDeducted >= 0
+        && data.netPayable is number && data.netPayable >= 0
+        && data.status in ['pending', 'processing', 'settled']
+        && (!('payoutReference' in data) || isValidString(data.payoutReference, 0, 120))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidPlatformSetting(data) {
+      return data.keys().hasAll(['id', 'defaultCommissionPercent', 'minAdvanceDays', 'activeCity', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'defaultCommissionPercent', 'minAdvanceDays', 'activeCity', 'updatedBy', 'updatedAt'])
+        && isValidId(data.id)
+        && data.defaultCommissionPercent is number && data.defaultCommissionPercent >= 0 && data.defaultCommissionPercent <= 50
+        && data.minAdvanceDays is number && data.minAdvanceDays >= 1 && data.minAdvanceDays <= 90
+        && isValidString(data.activeCity, 2, 80)
+        && (!('updatedBy' in data) || isValidString(data.updatedBy, 0, 128))
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidAuditLog(data) {
+      return data.keys().hasAll(['id', 'actorId', 'action', 'entityType', 'entityId', 'createdAt'])
+        && data.keys().hasOnly(['id', 'actorId', 'action', 'entityType', 'entityId', 'details', 'createdAt'])
+        && isValidId(data.id)
+        && isValidId(data.actorId)
+        && isValidString(data.action, 2, 120)
+        && isValidString(data.entityType, 2, 80)
+        && isValidId(data.entityId)
+        && (!('details' in data) || isValidString(data.details, 0, 600))
+        && data.createdAt is timestamp;
+    }
+
+    // -------------------------------------------------------------------------
+    // Collection Rules
+    // -------------------------------------------------------------------------
+    match /admins/{adminId} {
+      allow get: if isValidId(adminId) && (isOwner(adminId) || isAdmin());
+      allow list: if isAdminByEmail();
+      allow create, update, delete: if isValidId(adminId) && isAdminByEmail();
+    }
+
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isAdminByEmail();
+      allow create: if isValidId(userId) && isSignedIn() && isOwner(userId)
+        && isValidUser(incoming())
+        && incoming().uid == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (incoming().role in ['customer', 'group_member', 'venue_partner'] || (incoming().role == 'super_admin' && isAdminByEmail()));
+      allow update: if isValidId(userId) && isSignedIn() && isValidUser(incoming())
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin()
+          || (
+            isOwner(userId)
+            && incoming().diff(existing()).affectedKeys().hasOnly(['fullName', 'city', 'emailVerified', 'updatedAt'])
+            && incoming().role == existing().role
+          )
+        );
+      allow delete: if isValidId(userId) && isAdmin();
+    }
+
+    match /customer_profiles/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isAdminByEmail();
+      allow create: if isValidId(userId) && isSignedIn() && isOwner(userId)
+        && isValidCustomerProfile(incoming())
+        && incoming().userId == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(userId) && isSignedIn() && isValidCustomerProfile(incoming())
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin()
+          || (isOwner(userId) && incoming().diff(existing()).affectedKeys().hasOnly(['fullName', 'phone', 'city', 'interests', 'preferredActivities', 'typicalGroupSize', 'budgetPreference', 'updatedAt']))
+        );
+      allow delete: if isValidId(userId) && isAdmin();
+    }
+
+    match /groups/{groupId} {
+      allow get: if isValidId(groupId) && isSignedIn() && (
+        request.auth.uid in existing().memberIds || existing().organizerId == request.auth.uid || isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        request.auth.uid in resource.data.memberIds || resource.data.organizerId == request.auth.uid || isAdminByEmail()
+      );
+      allow create: if isValidId(groupId) && isVerifiedUser()
+        && isValidGroup(incoming())
+        && incoming().id == groupId
+        && incoming().organizerId == request.auth.uid
+        && request.auth.uid in incoming().memberIds
+        && incoming().status in ['planning', 'voting']
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(groupId) && isVerifiedUser() && isValidGroup(incoming())
+        && incoming().id == existing().id
+        && incoming().organizerId == existing().organizerId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && existing().status in ['planning', 'voting', 'finalized']
+        && (
+          isAdmin()
+          || (
+            existing().organizerId == request.auth.uid
+            && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'destination', 'tripDate', 'budgetPerPerson', 'totalBudget', 'participantLimit', 'memberIds', 'itineraryId', 'status', 'isDeleted', 'updatedAt'])
+          )
+          || (
+            !(request.auth.uid in existing().memberIds)
+            && incoming().diff(existing()).affectedKeys().hasOnly(['memberIds', 'updatedAt'])
+            && incoming().memberIds.size() == existing().memberIds.size() + 1
+            && request.auth.uid in incoming().memberIds
+          )
+        );
+      allow delete: if isValidId(groupId) && (isAdmin() || (isVerifiedUser() && existing().organizerId == request.auth.uid));
+    }
+
+    match /group_members/{memberId} {
+      allow get: if isValidId(memberId) && isSignedIn() && (
+        existing().userId == request.auth.uid
+        || existing().organizerId == request.auth.uid
+        || request.auth.uid in get(/databases/$(database)/documents/groups/$(existing().groupId)).data.memberIds
+        || isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        resource.data.userId == request.auth.uid || resource.data.organizerId == request.auth.uid || isAdminByEmail()
+      );
+      allow create: if isValidId(memberId) && isVerifiedUser()
+        && isValidGroupMember(incoming())
+        && incoming().id == memberId
+        && (incoming().userId == request.auth.uid || incoming().organizerId == request.auth.uid)
+        && exists(/databases/$(database)/documents/groups/$(incoming().groupId))
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(memberId) && isVerifiedUser() && isValidGroupMember(incoming())
+        && incoming().id == existing().id
+        && incoming().groupId == existing().groupId
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin()
+          || (existing().userId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'preferences', 'updatedAt']))
+          || (existing().organizerId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['role', 'updatedAt']))
+        );
+      allow delete: if isValidId(memberId) && isVerifiedUser() && (
+        existing().userId == request.auth.uid || existing().organizerId == request.auth.uid || isAdmin()
+      );
+    }
+
+    match /group_invitations/{invitationId} {
+      allow get: if isValidId(invitationId) && isSignedIn();
+      allow list: if isSignedIn() && (resource.data.organizerId == request.auth.uid || resource.data.status == 'active' || isAdminByEmail());
+      allow create: if isValidId(invitationId) && isVerifiedUser()
+        && isValidGroupInvitation(incoming())
+        && incoming().id == invitationId
+        && incoming().organizerId == request.auth.uid
+        && exists(/databases/$(database)/documents/groups/$(incoming().groupId))
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(invitationId) && isVerifiedUser() && isValidGroupInvitation(incoming())
+        && incoming().id == existing().id
+        && incoming().groupId == existing().groupId
+        && incoming().organizerId == existing().organizerId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (isAdmin() || (existing().organizerId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])));
+      allow delete: if isValidId(invitationId) && (isAdmin() || (isVerifiedUser() && existing().organizerId == request.auth.uid));
+    }
+
+    match /itineraries/{itineraryId} {
+      allow get: if isValidId(itineraryId) && isSignedIn() && (
+        existing().ownerId == request.auth.uid || request.auth.uid in existing().memberIds || isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        resource.data.ownerId == request.auth.uid || request.auth.uid in resource.data.memberIds || isAdminByEmail()
+      );
+      allow create: if isValidId(itineraryId) && isVerifiedUser()
+        && isValidItinerary(incoming())
+        && incoming().id == itineraryId
+        && incoming().ownerId == request.auth.uid
+        && request.auth.uid in incoming().memberIds
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(itineraryId) && isVerifiedUser() && isValidItinerary(incoming())
+        && incoming().id == existing().id
+        && incoming().ownerId == existing().ownerId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin()
+          || (
+            existing().ownerId == request.auth.uid
+            && incoming().diff(existing()).affectedKeys().hasOnly(['groupId', 'title', 'destination', 'startingLocation', 'travelDate', 'participantsCount', 'groupType', 'budgetPerPerson', 'estimatedTotalPerPerson', 'travelMode', 'summary', 'memberIds', 'stopIds', 'isFinalized', 'isDeleted', 'updatedAt'])
+          )
+          || (
+            'groupId' in existing()
+            && existing().groupId is string
+            && existing().groupId.size() > 0
+            && request.auth.uid in get(/databases/$(database)/documents/groups/$(existing().groupId)).data.memberIds
+            && incoming().diff(existing()).affectedKeys().hasOnly(['memberIds', 'stopIds', 'updatedAt'])
+            && request.auth.uid in incoming().memberIds
+          )
+        );
+      allow delete: if isValidId(itineraryId) && (isAdmin() || (isVerifiedUser() && existing().ownerId == request.auth.uid));
+    }
+
+    match /itinerary_stops/{stopId} {
+      allow get: if isValidId(stopId) && isSignedIn() && (
+        existing().ownerId == request.auth.uid
+        || request.auth.uid in get(/databases/$(database)/documents/itineraries/$(existing().itineraryId)).data.memberIds
+        || isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        resource.data.ownerId == request.auth.uid
+        || request.auth.uid in resource.data.memberIds
+        || resource.data.suggestedByUserId == request.auth.uid
+        || isAdminByEmail()
+      );
+      allow create: if isValidId(stopId) && isVerifiedUser()
+        && isValidItineraryStop(incoming())
+        && incoming().id == stopId
+        && exists(/databases/$(database)/documents/itineraries/$(incoming().itineraryId))
+        && (
+          incoming().ownerId == request.auth.uid
+          || (
+            incoming().suggestedByUserId == request.auth.uid
+            && request.auth.uid in get(/databases/$(database)/documents/itineraries/$(incoming().itineraryId)).data.memberIds
+          )
+        )
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(stopId) && isVerifiedUser() && isValidItineraryStop(incoming())
+        && incoming().id == existing().id
+        && incoming().itineraryId == existing().itineraryId
+        && incoming().ownerId == existing().ownerId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin()
+          || (existing().ownerId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['orderIndex', 'timeSlot', 'durationMinutes', 'title', 'category', 'locality', 'description', 'estimatedCostPerPerson', 'priceType', 'travelTimeNote', 'venueId', 'memberIds', 'alternativeOption', 'updatedAt']))
+          || (
+            request.auth.uid in get(/databases/$(database)/documents/itineraries/$(existing().itineraryId)).data.memberIds
+            && incoming().diff(existing()).affectedKeys().hasOnly(['memberIds', 'updatedAt'])
+            && request.auth.uid in incoming().memberIds
+          )
+        );
+      allow delete: if isValidId(stopId) && isVerifiedUser() && (
+        existing().ownerId == request.auth.uid || existing().suggestedByUserId == request.auth.uid || isAdmin()
+      );
+    }
+
+    match /itinerary_votes/{voteId} {
+      allow get: if isValidId(voteId) && isSignedIn() && (
+        existing().userId == request.auth.uid
+        || request.auth.uid in get(/databases/$(database)/documents/itineraries/$(existing().itineraryId)).data.memberIds
+        || isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        resource.data.userId == request.auth.uid
+        || request.auth.uid in resource.data.memberIds
+        || isAdminByEmail()
+      );
+      allow create: if isValidId(voteId) && isVerifiedUser()
+        && isValidItineraryVote(incoming())
+        && incoming().id == voteId
+        && incoming().userId == request.auth.uid
+        && exists(/databases/$(database)/documents/itineraries/$(incoming().itineraryId))
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(voteId) && isVerifiedUser() && isValidItineraryVote(incoming())
+        && incoming().id == existing().id
+        && incoming().itineraryId == existing().itineraryId
+        && incoming().stopId == existing().stopId
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin()
+          || (existing().userId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['vote', 'memberIds', 'updatedAt']))
+          || (
+            request.auth.uid in get(/databases/$(database)/documents/itineraries/$(existing().itineraryId)).data.memberIds
+            && incoming().diff(existing()).affectedKeys().hasOnly(['memberIds', 'updatedAt'])
+            && request.auth.uid in incoming().memberIds
+          )
+        );
+      allow delete: if isValidId(voteId) && isVerifiedUser() && (existing().userId == request.auth.uid || isAdmin());
+    }
+
+    match /venues/{venueId} {
+      allow get: if isValidId(venueId) && (
+        (existing().verificationStatus == 'approved' && (!('isDeleted' in existing()) || existing().isDeleted == false))
+        || (isSignedIn() && existing().partnerUserId == request.auth.uid)
+        || isAdmin()
+      );
+      allow list: if resource.data.verificationStatus == 'approved'
+        || (isSignedIn() && resource.data.partnerUserId == request.auth.uid)
+        || isAdminByEmail();
+      allow create: if isValidId(venueId) && isVerifiedUser()
+        && isValidVenue(incoming())
+        && incoming().id == venueId
+        && (
+          isAdmin()
+          || (
+            incoming().partnerUserId == request.auth.uid
+            && incoming().verificationStatus == 'pending'
+            && (!('isIllustrativeListing' in incoming()) || incoming().isIllustrativeListing == false)
+          )
+        )
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(venueId) && isVerifiedUser() && isValidVenue(incoming())
+        && incoming().id == existing().id
+        && incoming().partnerUserId == existing().partnerUserId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin()
+          || (
+            existing().partnerUserId == request.auth.uid
+            && incoming().verificationStatus == existing().verificationStatus
+            && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'category', 'city', 'locality', 'address', 'description', 'imageUrl', 'videoPreviewUrl', 'operatingHours', 'weekdayPrice', 'weekendPrice', 'lat', 'lng', 'updatedAt'])
+          )
+        );
+      allow delete: if isValidId(venueId) && isAdmin();
+    }
+
+    match /venue_partners/{partnerId} {
+      allow get: if isValidId(partnerId) && (isSignedIn() && (existing().userId == request.auth.uid || isAdmin()));
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdminByEmail());
+      allow create: if isValidId(partnerId) && isVerifiedUser()
+        && isValidVenuePartner(incoming())
+        && incoming().id == partnerId
+        && incoming().userId == request.auth.uid
+        && incoming().verificationStatus == 'pending'
+        && (!('commissionRatePercent' in incoming()) || incoming().commissionRatePercent == 15)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(partnerId) && isVerifiedUser() && isValidVenuePartner(incoming())
+        && incoming().id == existing().id
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin()
+          || (
+            existing().userId == request.auth.uid
+            && incoming().verificationStatus == existing().verificationStatus
+            && (!('commissionRatePercent' in incoming()) || incoming().commissionRatePercent == existing().commissionRatePercent)
+            && incoming().diff(existing()).affectedKeys().hasOnly(['businessName', 'ownerName', 'email', 'phone', 'category', 'address', 'city', 'locality', 'gstNumber', 'registrationDetails', 'operatingHours', 'updatedAt'])
+          )
+        );
+      allow delete: if isValidId(partnerId) && isAdmin();
+    }
+
+    match /venue_staff/{staffId} {
+      allow get: if isValidId(staffId) && isSignedIn() && (existing().partnerUserId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.partnerUserId == request.auth.uid || isAdminByEmail());
+      allow create: if isValidId(staffId) && isVerifiedUser()
+        && isValidVenueStaff(incoming())
+        && incoming().id == staffId
+        && incoming().partnerUserId == request.auth.uid
+        && exists(/databases/$(database)/documents/venue_partners/$(incoming().partnerId))
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(staffId) && isVerifiedUser() && isValidVenueStaff(incoming())
+        && incoming().id == existing().id
+        && incoming().partnerId == existing().partnerId
+        && incoming().partnerUserId == existing().partnerUserId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (isAdmin() || (existing().partnerUserId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['staffName', 'staffEmail', 'role', 'updatedAt'])));
+      allow delete: if isValidId(staffId) && (isAdmin() || (isVerifiedUser() && existing().partnerUserId == request.auth.uid));
+    }
+
+    match /activities/{activityId} {
+      allow get: if isValidId(activityId) && (existing().isPublished == true || (isSignedIn() && existing().partnerUserId == request.auth.uid) || isAdmin());
+      allow list: if resource.data.isPublished == true || (isSignedIn() && resource.data.partnerUserId == request.auth.uid) || isAdminByEmail();
+      allow create: if isValidId(activityId) && isVerifiedUser()
+        && isValidActivity(incoming())
+        && incoming().id == activityId
+        && (isAdmin() || incoming().partnerUserId == request.auth.uid)
+        && exists(/databases/$(database)/documents/venues/$(incoming().venueId))
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(activityId) && isVerifiedUser() && isValidActivity(incoming())
+        && incoming().id == existing().id
+        && incoming().venueId == existing().venueId
+        && incoming().partnerUserId == existing().partnerUserId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (isAdmin() || (existing().partnerUserId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'category', 'description', 'durationMinutes', 'isPublished', 'updatedAt'])));
+      allow delete: if isValidId(activityId) && (isAdmin() || (isVerifiedUser() && existing().partnerUserId == request.auth.uid));
+    }
+
+    match /activity_pricing/{pricingId} {
+      allow get: if isValidId(pricingId);
+      allow list: if resource.data.weekdayRate >= 0;
+      allow create: if isValidId(pricingId) && isVerifiedUser()
+        && isValidActivityPricing(incoming())
+        && incoming().id == pricingId
+        && (isAdmin() || incoming().partnerUserId == request.auth.uid)
+        && exists(/databases/$(database)/documents/venues/$(incoming().venueId))
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(pricingId) && isVerifiedUser() && isValidActivityPricing(incoming())
+        && incoming().id == existing().id
+        && incoming().activityId == existing().activityId
+        && incoming().venueId == existing().venueId
+        && incoming().partnerUserId == existing().partnerUserId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (isAdmin() || (existing().partnerUserId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['weekdayRate', 'weekendRate', 'isConfirmedByPartner', 'updatedAt'])));
+      allow delete: if isValidId(pricingId) && isAdmin();
+    }
+
+    match /venue_inventory/{inventoryId} {
+      allow get: if isValidId(inventoryId);
+      allow list: if resource.data.availableSlots >= 0
+        || (isSignedIn() && resource.data.partnerUserId == request.auth.uid)
+        || isAdminByEmail();
+      allow create: if isValidId(inventoryId) && isVerifiedUser()
+        && isValidVenueInventory(incoming())
+        && incoming().id == inventoryId
+        && (isAdmin() || incoming().partnerUserId == request.auth.uid)
+        && exists(/databases/$(database)/documents/venues/$(incoming().venueId))
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(inventoryId) && isVerifiedUser() && isValidVenueInventory(incoming())
+        && incoming().id == existing().id
+        && incoming().venueId == existing().venueId
+        && incoming().partnerUserId == existing().partnerUserId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin()
+          || (existing().partnerUserId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['totalSlots', 'availableSlots', 'updatedAt']))
+        );
+      allow delete: if isValidId(inventoryId) && (isAdmin() || (isVerifiedUser() && existing().partnerUserId == request.auth.uid));
+    }
+
+    match /price_lock_offers/{offerId} {
+      allow get: if isValidId(offerId) && (
+        existing().offerStatus in ['active', 'awaiting_partner_confirmation']
+        || (isSignedIn() && existing().partnerUserId == request.auth.uid)
+        || isAdmin()
+      );
+      allow list: if resource.data.offerStatus in ['active', 'awaiting_partner_confirmation']
+        || (isSignedIn() && resource.data.partnerUserId == request.auth.uid)
+        || isAdminByEmail();
+      allow create: if isValidId(offerId) && isVerifiedUser()
+        && isValidPriceLockOffer(incoming())
+        && incoming().id == offerId
+        && exists(/databases/$(database)/documents/venues/$(incoming().venueId))
+        && (
+          isAdmin()
+          || (
+            incoming().partnerUserId == request.auth.uid
+            && get(/databases/$(database)/documents/venues/$(incoming().venueId)).data.verificationStatus == 'approved'
+          )
+        )
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(offerId) && isVerifiedUser() && isValidPriceLockOffer(incoming())
+        && incoming().id == existing().id
+        && incoming().venueId == existing().venueId
+        && incoming().partnerUserId == existing().partnerUserId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin()
+          || (existing().partnerUserId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'weekdayPrice', 'weekendPrice', 'albaAdvancePrice', 'discountPercent', 'availableSlots', 'activityDate', 'bookingDeadline', 'expiresAt', 'partnerTerms', 'cancellationPolicy', 'offerStatus', 'updatedAt']))
+        );
+      allow delete: if isValidId(offerId) && isAdmin();
+    }
+
+    match /bookings/{bookingId} {
+      allow get: if isValidId(bookingId) && isSignedIn() && (
+        existing().customerId == request.auth.uid || existing().partnerUserId == request.auth.uid || isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        resource.data.customerId == request.auth.uid || resource.data.partnerUserId == request.auth.uid || isAdminByEmail()
+      );
+      allow create: if isValidId(bookingId) && isVerifiedUser()
+        && isValidBooking(incoming())
+        && incoming().id == bookingId
+        && incoming().customerId == request.auth.uid
+        && incoming().status == 'pending'
+        && incoming().paymentStatus in ['unpaid', 'instructions_sent']
+        && exists(/databases/$(database)/documents/venues/$(incoming().venueId))
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(bookingId) && isVerifiedUser() && isValidBooking(incoming())
+        && incoming().id == existing().id
+        && incoming().idempotencyKey == existing().idempotencyKey
+        && incoming().customerId == existing().customerId
+        && incoming().venueId == existing().venueId
+        && incoming().partnerUserId == existing().partnerUserId
+        && incoming().lockedUnitPrice == existing().lockedUnitPrice
+        && incoming().grossAmount == existing().grossAmount
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && !(existing().status in ['rejected', 'refunded'])
+        && (
+          isAdmin()
+          || (
+            existing().customerId == request.auth.uid
+            && (
+              (incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
+                && existing().status in ['draft', 'pending', 'accepted', 'confirmed']
+                && incoming().status in ['cancelled', 'refund_requested'])
+              || (incoming().diff(existing()).affectedKeys().hasOnly(['paymentStatus', 'updatedAt'])
+                && incoming().paymentStatus == 'reference_submitted')
+            )
+          )
+          || (
+            existing().partnerUserId == request.auth.uid
+            && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'paymentStatus', 'updatedAt'])
+            && existing().status in ['pending', 'accepted', 'confirmed']
+            && incoming().status in ['accepted', 'rejected', 'confirmed', 'completed']
+          )
+        );
+      allow delete: if isValidId(bookingId) && isAdmin();
+    }
+
+    match /booking_status_history/{historyId} {
+      allow get: if isValidId(historyId) && isSignedIn() && (
+        existing().customerId == request.auth.uid || existing().partnerUserId == request.auth.uid || isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        resource.data.customerId == request.auth.uid || resource.data.partnerUserId == request.auth.uid || isAdminByEmail()
+      );
+      allow create: if isValidId(historyId) && isVerifiedUser()
+        && isValidBookingStatusHistory(incoming())
+        && incoming().id == historyId
+        && incoming().changedBy == request.auth.uid
+        && incoming().createdAt == request.time;
+      allow update, delete: if false;
+    }
+
+    match /payments/{paymentId} {
+      allow get: if isValidId(paymentId) && isSignedIn() && (
+        existing().customerId == request.auth.uid || existing().partnerUserId == request.auth.uid || isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        resource.data.customerId == request.auth.uid || resource.data.partnerUserId == request.auth.uid || isAdminByEmail()
+      );
+      allow create: if isValidId(paymentId) && isVerifiedUser()
+        && isValidPayment(incoming())
+        && incoming().id == paymentId
+        && (incoming().customerId == request.auth.uid || isAdmin())
+        && exists(/databases/$(database)/documents/bookings/$(incoming().bookingId))
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(paymentId) && isVerifiedUser() && isValidPayment(incoming())
+        && incoming().id == existing().id
+        && incoming().bookingId == existing().bookingId
+        && incoming().customerId == existing().customerId
+        && incoming().partnerUserId == existing().partnerUserId
+        && incoming().amount == existing().amount
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin()
+          || (existing().customerId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['transactionRef', 'status', 'updatedAt']) && incoming().status == 'reference_submitted')
+          || (existing().partnerUserId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']) && incoming().status == 'verified')
+        );
+      allow delete: if isValidId(paymentId) && isAdmin();
+    }
+
+    match /reviews/{reviewId} {
+      allow get: if isValidId(reviewId) && (existing().moderationStatus == 'published' || (isSignedIn() && existing().customerId == request.auth.uid) || isAdmin());
+      allow list: if resource.data.moderationStatus == 'published' || (isSignedIn() && resource.data.customerId == request.auth.uid) || isAdminByEmail();
+      allow create: if isValidId(reviewId) && isVerifiedUser()
+        && isValidReview(incoming())
+        && incoming().id == reviewId
+        && incoming().customerId == request.auth.uid
+        && incoming().isVerifiedBooking == true
+        && incoming().moderationStatus == 'published'
+        && exists(/databases/$(database)/documents/bookings/$(incoming().bookingId))
+        && get(/databases/$(database)/documents/bookings/$(incoming().bookingId)).data.customerId == request.auth.uid
+        && get(/databases/$(database)/documents/bookings/$(incoming().bookingId)).data.status == 'completed'
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(reviewId) && isVerifiedUser() && isValidReview(incoming())
+        && incoming().id == existing().id
+        && incoming().venueId == existing().venueId
+        && incoming().bookingId == existing().bookingId
+        && incoming().customerId == existing().customerId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin()
+          || (
+            get(/databases/$(database)/documents/venues/$(existing().venueId)).data.partnerUserId == request.auth.uid
+            && incoming().diff(existing()).affectedKeys().hasOnly(['partnerResponse', 'updatedAt'])
+          )
+        );
+      allow delete: if isValidId(reviewId) && isAdmin();
+    }
+
+    match /notifications/{notificationId} {
+      allow get: if isValidId(notificationId) && isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdminByEmail());
+      allow create: if isValidId(notificationId) && isVerifiedUser()
+        && isValidNotification(incoming())
+        && incoming().id == notificationId
+        && incoming().isRead == false
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(notificationId) && isSignedIn() && isValidNotification(incoming())
+        && incoming().id == existing().id
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (isAdmin() || (existing().userId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['isRead', 'updatedAt'])));
+      allow delete: if isValidId(notificationId) && (isAdmin() || (isSignedIn() && existing().userId == request.auth.uid));
+    }
+
+    match /favourites/{favouriteId} {
+      allow get: if isValidId(favouriteId) && isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdminByEmail());
+      allow create: if isValidId(favouriteId) && isVerifiedUser()
+        && isValidFavourite(incoming())
+        && incoming().id == favouriteId
+        && incoming().userId == request.auth.uid
+        && incoming().createdAt == request.time;
+      allow update: if false;
+      allow delete: if isValidId(favouriteId) && isVerifiedUser() && (existing().userId == request.auth.uid || isAdmin());
+    }
+
+    match /support_tickets/{ticketId} {
+      allow get: if isValidId(ticketId) && isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdminByEmail());
+      allow create: if isValidId(ticketId) && isVerifiedUser()
+        && isValidSupportTicket(incoming())
+        && incoming().id == ticketId
+        && incoming().userId == request.auth.uid
+        && incoming().status == 'open'
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(ticketId) && isVerifiedUser() && isValidSupportTicket(incoming())
+        && incoming().id == existing().id
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (isAdmin() || (existing().userId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']) && incoming().status == 'closed'));
+      allow delete: if isValidId(ticketId) && isAdmin();
+    }
+
+    match /support_messages/{messageId} {
+      allow get: if isValidId(messageId) && isSignedIn() && (
+        isAdmin()
+        || (existing().ticketOwnerId == request.auth.uid && existing().isInternalNote == false)
+      );
+      allow list: if isSignedIn() && (
+        isAdminByEmail()
+        || (resource.data.ticketOwnerId == request.auth.uid && resource.data.isInternalNote == false)
+      );
+      allow create: if isValidId(messageId) && isVerifiedUser()
+        && isValidSupportMessage(incoming())
+        && incoming().id == messageId
+        && incoming().senderId == request.auth.uid
+        && exists(/databases/$(database)/documents/support_tickets/$(incoming().ticketId))
+        && (
+          isAdmin()
+          || (
+            incoming().ticketOwnerId == request.auth.uid
+            && incoming().isInternalNote == false
+            && incoming().senderRole in ['customer', 'venue_partner']
+          )
+        )
+        && incoming().createdAt == request.time;
+      allow update, delete: if false;
+    }
+
+    match /settlements/{settlementId} {
+      allow get: if isValidId(settlementId) && isSignedIn() && (existing().partnerUserId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.partnerUserId == request.auth.uid || isAdminByEmail());
+      allow create, update: if isValidId(settlementId) && isAdmin() && isValidSettlement(incoming())
+        && incoming().createdAt is timestamp && incoming().updatedAt == request.time;
+      allow delete: if isValidId(settlementId) && isAdmin();
+    }
+
+    match /platform_settings/{settingId} {
+      allow get: if isValidId(settingId);
+      allow list: if resource.data.defaultCommissionPercent >= 0;
+      allow create, update: if isValidId(settingId) && isAdmin() && isValidPlatformSetting(incoming())
+        && incoming().id == settingId && incoming().updatedAt == request.time;
+      allow delete: if isValidId(settingId) && isAdmin();
+    }
+
+    match /audit_logs/{logId} {
+      allow get, list: if isAdminByEmail();
+      allow create: if isValidId(logId) && isVerifiedUser()
+        && isValidAuditLog(incoming())
+        && incoming().id == logId
+        && incoming().actorId == request.auth.uid
+        && incoming().createdAt == request.time;
+      allow update, delete: if false;
+    }
+  }
+}

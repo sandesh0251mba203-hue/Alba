@@ -1,0 +1,6 @@
+{
+  "name": "Alba",
+  "description": "AI-powered travel, group outing planning, and lifestyle concierge platform for Bengaluru and Indian metro cities.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
